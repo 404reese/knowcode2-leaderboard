@@ -1,0 +1,221 @@
+import { collection, getDocs } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import { db } from './firebase';
+
+interface IGroupRating {
+  projectId: string;
+  criterionId: number;
+  score: number;
+}
+
+interface Project {
+  projectId: string;
+  teamName: string;
+  criteria1: number;
+  criteria2: number;
+  criteria3: number;
+  criteria4: number;
+  criteria5: number;
+}
+
+function App() {
+  const [groupedRatings, setGroupedRatings] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchRatingsAndProjects();
+  }, []);
+
+  // Calculate the average score for a project based on its criteria
+  function averageScore(project: any): number {
+    const scores = [
+      project.criteria1 || 0,
+      project.criteria2 || 0,
+      project.criteria3 || 0,
+      project.criteria4 || 0,
+      project.criteria5 || 0,
+    ];
+    const total = scores.reduce((sum, score) => sum + score, 0);
+    const count = scores.filter((score) => score > 0).length; // Count non-zero scores
+    return count > 0 ? Number((total / count).toFixed(1)) : 0;
+  }
+
+  // Fetch the ratings and project data
+  async function fetchRatingsAndProjects() {
+    const ratingsCollection = collection(db, "ratings");
+    const ratingsSnapshot = await getDocs(ratingsCollection);
+    const ratingsList: IGroupRating[] = ratingsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      projectId: doc.data().projectId,
+      criterionId: doc.data().criterionId,
+      score: doc.data().score,
+    }));
+
+    // Fetch projects to map projectId -> teamName
+    const projectCollection = collection(db, "projects");
+    const projectSnapshot = await getDocs(projectCollection);
+    const projectList = projectSnapshot.docs.reduce((acc: Record<string, string>, doc) => {
+      acc[doc.id] = doc.data().teamName; // Assuming teamName exists in the projects collection
+      return acc;
+    }, {});
+
+    // Group ratings by projectId
+    const grouped = ratingsList.reduce((acc: Record<string, any[]>, rating: IGroupRating) => {
+      const { projectId } = rating;
+      if (!acc[projectId]) {
+        acc[projectId] = [];
+      }
+      acc[projectId].push(rating);
+      return acc;
+    }, {});
+
+    // Calculate criterion scores for each projectId and map teamName
+    const projectsData = Object.entries(grouped).map(([projectId, ratings]) => {
+      const scores: Record<string, number> = {};
+
+      ratings.forEach((rating: any) => {
+        const { criterionId, score } = rating;
+        if (!scores[`criteria${criterionId}`]) {
+          scores[`criteria${criterionId}`] = 0;
+        }
+        scores[`criteria${criterionId}`] += score;
+      });
+
+      return {
+        projectId,
+        teamName: projectList[projectId] || `Project ${projectId}`, // Fallback if teamName is not found
+        ...scores,
+      };
+    });
+
+    console.log("Processed Projects Data: ", projectsData);
+    setGroupedRatings(projectsData);
+  }
+
+  // Update leaderboard whenever data changes
+  
+
+  // Sort the projects by average score (highest to lowest)
+  const sortedProjects = groupedRatings.sort((a, b) => {
+    return averageScore(b) - averageScore(a); // Sort in descending order
+  });
+
+  // Helper functions for TopPlayerCard design
+  const getIconSrc = (rank: number) => {
+    switch (rank) {
+      case 1:
+        return '/1.webp';
+      case 2:
+        return '/2.webp';
+      case 3:
+        return '/3.webp';
+      default:
+        return '';
+    }
+  };
+
+  const getBgStyle = (rank: number) => {
+    switch (rank) {
+      case 1:
+        return 'bg-purple-900/80 border-4 border-purple-700';
+      case 2:
+        return 'bg-cyan-700/80 border-4 border-cyan-500';
+      case 3:
+        return 'bg-yellow-700/80 border-4 border-yellow-500';
+      default:
+        return '';
+    }
+  };
+
+  const rankText = (rank: number) => {
+    return rank === 1 ? "RANK : 1" : rank === 2 ? "RANK : 2" : "RANK : 3";
+  };
+
+  return (
+    <div className="min-h-screen p-10 relative">
+      {/* Background Video */}
+      <video autoPlay loop muted className="absolute top-0 left-0 w-full h-full object-cover z-0">
+        <source src="/v1.mp4" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+
+      <div className="max-w-6xl mx-auto z-10 relative">
+        {/* Title inside the same container */}
+        <div className="bg-gray-800/90 rounded-lg p-6 mb-16">
+          <h1 className="text-6xl font-minecraft text-center text-gray-100 mb-16">
+            KNOWCODE 2.0 Leaderboard
+          </h1>
+
+          {/* Top 3 Projects */}
+          <div className="relative grid grid-cols-1 md:grid-cols-3 gap-12 mb-16">
+            <div className="md:col-start-2 md:row-start-1 z-10 transform md:-translate-y-6">
+              <div className={`relative p-8 rounded-lg shadow-lg transform hover:scale-105 transition-transform ${getBgStyle(1)} text-gray-100`}>
+                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
+                  <img src={getIconSrc(1)} alt="Rank 1" className="w-10 h-10" />
+                </div>
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 text-white font-minecraft text-2xl">
+                  {rankText(1)}
+                </div>
+                <div className="mt-6 text-center">
+                  <h3 className="text-3xl font-minecraft mb-4">{sortedProjects[0]?.teamName}</h3>
+                  <div className="flex justify-center items-center mt-6">
+                    <div className="text-5xl font-minecraft">{averageScore(sortedProjects[0])}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="md:col-start-1 md:row-start-1 md:translate-y-12">
+              <div className={`relative p-8 rounded-lg shadow-lg transform hover:scale-105 transition-transform ${getBgStyle(2)} text-gray-100`}>
+                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
+                  <img src={getIconSrc(2)} alt="Rank 2" className="w-10 h-10" />
+                </div>
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 text-white font-minecraft text-2xl">
+                  {rankText(2)}
+                </div>
+                <div className="mt-6 text-center">
+                  <h3 className="text-3xl font-minecraft mb-4">{sortedProjects[1]?.teamName}</h3>
+                  <div className="flex justify-center items-center mt-6">
+                    <div className="text-5xl font-minecraft">{averageScore(sortedProjects[1])}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="md:col-start-3 md:row-start-1 md:translate-y-12">
+              <div className={`relative p-8 rounded-lg shadow-lg transform hover:scale-105 transition-transform ${getBgStyle(3)} text-gray-100`}>
+                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
+                  <img src={getIconSrc(3)} alt="Rank 3" className="w-10 h-10" />
+                </div>
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 text-white font-minecraft text-2xl">
+                  {rankText(3)}
+                </div>
+                <div className="mt-6 text-center">
+                  <h3 className="text-3xl font-minecraft mb-4">{sortedProjects[2]?.teamName}</h3>
+                  <div className="flex justify-center items-center mt-6">
+                    <div className="text-5xl font-minecraft">{averageScore(sortedProjects[2])}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ranking Table for projects ranked 4th and below */}
+          <div className="space-y-4">
+            {sortedProjects.slice(3).map((project, index) => (
+              <div key={project.projectId}
+                className="bg-gray-700/90 rounded-lg p-4 flex items-center justify-between hover:bg-gray-600/90 transition-colors">
+                <div className="flex items-center space-x-4">
+                  <span className="text-gray-400 text-3xl font-minecraft">{index + 4}</span>
+                  <span className="text-gray-100 text-2xl font-minecraft">{project.teamName}</span>
+                </div>
+                <div className="text-3xl text-gray-100 font-minecraft w-32 text-right">
+                  {averageScore(project)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default App;
